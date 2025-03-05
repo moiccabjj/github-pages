@@ -1,37 +1,178 @@
-# Compiled source #
-###################
-*.com
-*.class
-*.dll
-*.exe
-*.o
-*.so
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planilha de Lançamentos</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            max-width: 800px;
+        }
+        .form-container {
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+        .saida-row {
+            background-color: #fdecea;
+        }
+        .entrada-row {
+            background-color: #eafaf1;
+        }
+        canvas {
+            max-width: 100%;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Planilha de Lançamentos</h1>
+    <div id="saldo-display">Saldo: R$ 0.00</div>
+    <div class="form-container">
+        <label for="category">Categoria:</label>
+        <select id="category">
+            <optgroup label="Saídas">
+                <option value="Matéria-prima">Matéria-prima</option>
+                <option value="Mão de obra">Mão de obra</option>
+                <option value="Energia elétrica">Energia elétrica</option>
+                <option value="Equipamentos">Equipamentos</option>
+                <option value="Combustível">Combustível</option>
+                <option value="Motoboy">Motoboy</option>
+                <option value="Transportadora">Transportadora</option>
+                <option value="Outros">Outros</option>
+            </optgroup>
+            <optgroup label="Entradas">
+                <option value="Venda">Venda</option>
+            </optgroup>
+        </select>
+        <label for="type">Tipo:</label>
+        <select id="type">
+            <option value="Saída">Saída</option>
+            <option value="Entrada">Entrada</option>
+        </select>
+        <label for="amount">Valor (R$):</label>
+        <input type="number" id="amount" step="0.01" required>
+        <label for="description">Descrição:</label>
+        <textarea id="description" rows="3"></textarea>
+        <label for="date">Data:</label>
+        <input type="date" id="date">
+        <button onclick="addExpense()">Adicionar</button>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Data</th>
+                <th>Categoria</th>
+                <th>Tipo</th>
+                <th>Valor (R$)</th>
+                <th>Descrição</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody id="expense-table"></tbody>
+    </table>
+    <canvas id="expense-chart"></canvas>
+    <script>
+        let expenses = JSON.parse(localStorage.getItem('expenses')) || [];
+        const tableBody = document.getElementById('expense-table');
+        const saldoDisplay = document.getElementById('saldo-display');
+        const ctx = document.getElementById('expense-chart').getContext('2d');
+        let chart;
+        
+        function calculateSaldo() {
+            let saldo = 0;
+            expenses.forEach(expense => {
+                saldo += expense.type === 'Entrada' ? expense.amount : -expense.amount;
+            });
+            return saldo;
+        }
+        
+        function updateSaldoDisplay() {
+            saldoDisplay.textContent = `Saldo: R$ ${calculateSaldo().toFixed(2)}`;
+        }
+        
+        function addExpense() {
+            const category = document.getElementById('category').value;
+            const type = document.getElementById('type').value;
+            const amount = parseFloat(document.getElementById('amount').value);
+            const description = document.getElementById('description').value;
+            const date = document.getElementById('date').value;
 
-# Packages #
-############
-# it's better to unpack these files and commit the raw source
-# git has its own built in compression methods
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
+            if (!category || !type || isNaN(amount) || !date) {
+                alert('Preencha todos os campos!');
+                return;
+            }
 
-# Logs and databases #
-######################
-*.log
-*.sql
-*.sqlite
-
-# OS generated files #
-######################
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+            const newExpense = { date, category, type, amount, description };
+            expenses.push(newExpense);
+            localStorage.setItem('expenses', JSON.stringify(expenses));
+            updateTable();
+            updateSaldoDisplay();
+            updateChart();
+        }
+        
+        function updateTable() {
+            tableBody.innerHTML = '';
+            expenses.forEach((expense, index) => {
+                const row = document.createElement('tr');
+                row.classList.add(expense.type === 'Entrada' ? 'entrada-row' : 'saida-row');
+                row.innerHTML = `
+                    <td>${expense.date}</td>
+                    <td>${expense.category}</td>
+                    <td>${expense.type}</td>
+                    <td>R$ ${expense.amount.toFixed(2)}</td>
+                    <td>${expense.description}</td>
+                    <td><button onclick="deleteExpense(${index})">X</button></td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+        
+        function deleteExpense(index) {
+            expenses.splice(index, 1);
+            localStorage.setItem('expenses', JSON.stringify(expenses));
+            updateTable();
+            updateSaldoDisplay();
+            updateChart();
+        }
+        
+        function updateChart() {
+            const categories = {};
+            expenses.forEach(expense => {
+                if (expense.type === 'Saída') {
+                    categories[expense.category] = (categories[expense.category] || 0) + expense.amount;
+                }
+            });
+            const labels = Object.keys(categories);
+            const data = Object.values(categories);
+            if (chart) chart.destroy();
+            chart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4CAF50', '#9966FF', '#FF9F40'],
+                    }]
+                }
+            });
+        }
+        updateTable();
+        updateSaldoDisplay();
+        updateChart();
+    </script>
+</body>
+</html>
